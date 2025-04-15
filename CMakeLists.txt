@@ -30,16 +30,34 @@ add_executable(main src/main.cpp)
 
 enable_testing()
 
-add_executable(poly_tests
-    tests/test_poly.cpp
+add_executable(modular_int_tests
+    tests/test_ModularInt.cpp
 )
 
-target_link_libraries(poly_tests
+add_executable(NTT_tests
+    tests/test_NTT.cpp
+)
+
+add_executable(modular_arith_tests
+    tests/test_ModularArith.cpp
+)
+
+target_link_libraries(modular_int_tests
+    gtest_main
+)
+
+target_link_libraries(NTT_tests
+    gtest_main
+)
+
+target_link_libraries(modular_arith_tests
     gtest_main
 )
 
 include(GoogleTest)
-gtest_discover_tests(poly_tests)
+gtest_discover_tests(modular_int_tests)
+gtest_discover_tests(NTT_tests)
+gtest_discover_tests(modular_arith_tests)
 
 
 

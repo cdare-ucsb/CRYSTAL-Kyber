@@ -1,5 +1,5 @@
 /*!
- * \file Poly.hpp
+ * \file ModularInt.hpp
  * \brief Template class for storing and packing polynomials over Z_q[x]/(x^N + 1)
  *
  * Provides support for compile-time selected modulus Q and degree N,
@@ -15,11 +15,12 @@
 #include <cmath>
 #include <bit> 
 #include "SmallestUInt.hpp"
+#include "ModularArith.hpp"
 
 
 
 /*!
- * \class Poly
+ * \class ModularInt
  * \brief Represents a polynomial in Z_q[x] / (x^N + 1)
  *
  * \tparam Q The modulus q. Coefficients are in Z_q.
@@ -30,13 +31,16 @@
  * Supports bit-efficient packing and unpacking into byte arrays.
  */
 template <uint64_t Q, size_t N>
-class Poly {
+class ModularInt {
 public:
+
     using CoeffType = SmallestUInt_t<Q>;
+    using MA = ModArith<Q>;
 
     /// @brief The number of bits needed to represent a coefficient in Z_q
     /// @details This is the smallest integer k such that 2^k >= Q.
     static constexpr int BITLEN = std::bit_width(Q);
+
     /// @brief The number of bytes needed to represent a coefficient in Z_q
     /// @details This is the smallest integer k such that 8*k >= N*BITLEN.
     static constexpr size_t PACKED_BYTES = (BITLEN * N + 7) / 8;
@@ -47,6 +51,9 @@ public:
     /// Access coefficient by index
     CoeffType& operator[](size_t idx) { return coeffs[idx]; }
     const CoeffType& operator[](size_t idx) const { return coeffs[idx]; }
+
+
+
 
     /*!
     * Packs the coefficients into a tightly-packed byte array.
@@ -94,5 +101,19 @@ public:
             coeffs[i] = val & ((1ULL << BITLEN) - 1);
             bitpos += BITLEN;
         }
+    }
+
+    /*!
+     * \brief Computes the sup-norm (infinity norm) of the polynomial
+     * \return The largest size of any coefficient under the symmetric modulus
+     */
+    CoeffType sup_norm() const {
+        CoeffType max_size = 0;
+        for (CoeffType c : coeffs) {
+            CoeffType s = MA::size(c);
+            if (s > max_size)
+                max_size = s;
+        }
+        return max_size;
     }
 };

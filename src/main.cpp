@@ -1,11 +1,11 @@
-#include "Poly.hpp"
+#include "ModularInt.hpp"
 #include <iostream>
 
 int main() {
     constexpr uint64_t Q = 3329;
     constexpr size_t N = 256;
 
-    using MyPoly = Poly<Q, N>;
+    using MyPoly = ModularInt<Q, N>;
 
     MyPoly p;
     for (size_t i = 0; i < N; ++i)
