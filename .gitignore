@@ -1,0 +1,45 @@
+# === Build artifacts ===
+/build/
+/CMakeFiles/
+/CMakeCache.txt
+/Makefile
+/cmake_install.cmake
+/*.cmake
+
+# === Binaries ===
+/main
+/*.out
+/*.exe
+/*.a
+/*.so
+/*.dll
+
+# === Compilation cache ===
+*.o
+*.obj
+*.pch
+*.pdb
+
+# === Editor & OS files ===
+*.DS_Store
+*.swp
+*~
+
+# === Doxygen output ===
+/docs/html/
+/docs/latex/
+/docs/*.tag
+
+# === CLion / VSCode / IDEs ===
+.idea/
+.vscode/
+compile_commands.json
+
+# === Test output ===
+/test_output/
+/coverage/
+
+# === Generated files ===
+*.log
+*.tmp
+*.bak
