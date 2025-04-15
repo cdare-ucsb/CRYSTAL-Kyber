@@ -52,38 +52,26 @@ TEST(NTT, RoundTrip1) {
 
 
 
-// TEST(NTT, Roundtrip) {
+TEST(NTT, Roundtrip2) {
 
-//     /// ML-KEM-768 Parameters
-//     constexpr uint64_t Q = 3329;
-//     constexpr size_t N = 256;
-//     using Poly = ModularInt<Q, N>;
+    /// ML-KEM-768 Parameters
+    constexpr uint64_t Q = 3329;
+    constexpr size_t N = 256;
+    using Poly = ModularInt<Q, N>;
 
-//     Poly p;
-//     for (size_t i = 0; i < N; ++i)
-//         p[i] = i % Q;
-
-//     Poly p_orig = p;  // Save original
-
-//     NTTContext<Q, N> ctx(17);  // root is primitive N-th root
-
-//     std::cout << "Prior to NTT, INTT" << std::endl;
-//     for (size_t i = 0; i < N; ++i) {
-//         std::cout << "p[" << i << "] = " << p[i] << ", expected = " << p_orig[i] << "\n";
-//     }
-
-//     forward_ntt(p, ctx);
-//     inverse_ntt(p, ctx);
-
-//     std::cout << "After NTT, INTT" << std::endl;
+    Poly p;
+    for (size_t i = 0; i < N; ++i)
+        p[i] = i % Q;
 
 
-//     for (size_t i = 0; i < N; ++i) {
-//         std::cout << "p[" << i << "] = " << p[i] << ", expected = " << p_orig[i] << "\n";
-//     }
+    NTTContext<Q, N> ctx(17);  // root is primitive N-th root
 
-//     for (size_t i = 0; i < N; ++i) 
-//         ASSERT_EQ(p[i], p_orig[i]) << "Mismatch at index " << i;
+    forward_ntt(p, ctx);
+    inverse_ntt(p, ctx);
+
+
+    for (size_t i = 0; i < N; ++i) 
+        ASSERT_EQ(p[i], i % Q) << "Mismatch at index " << i;
     
     
-// }
+}

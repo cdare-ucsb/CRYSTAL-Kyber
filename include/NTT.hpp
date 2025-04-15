@@ -5,19 +5,7 @@
 #include "NTTUtils.hpp"
 
 
-/*!
- * \brief Perform an in-place Number Theoretic Transform (NTT) on the input polynomial
- *
- * \tparam Q The prime modulus (typically q = 3329 in Kyber)
- * \tparam N The number of coefficients (must be a power of 2)
- *
- * \param[in,out] poly The polynomial to be transformed. On output, contains the NTT of the input.
- * \param[in] root A primitive N-th root of unity modulo Q. It must satisfy root^N ≡ 1 mod Q.
- *
- * This function applies the Cooley–Tukey decimation-in-time radix-2 algorithm to compute the
- * NTT of the polynomial efficiently in O(N log N) time. It assumes that Q ≡ 1 mod 2N so that
- * such a root of unity exists, and that N is a power of two.
- */
+
 template <uint64_t Q, size_t N>
 void forward_ntt(ModularInt<Q, N>& poly, const NTTContext<Q, N>& ctx) {
     using MA = ModArith<Q>;
