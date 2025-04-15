@@ -43,7 +43,7 @@ struct NTTContext {
 
     /*!
      * \brief Constructor that precomputes bit-reversal and twiddle factors.
-     * \param root A primitive 2N-th root of unity modulo Q
+     * \param root A primitive N-th root of unity modulo Q
      */
     NTTContext(uint64_t r) {
 

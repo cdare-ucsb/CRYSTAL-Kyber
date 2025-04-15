@@ -65,4 +65,32 @@ struct ModArith {
         constexpr T quarter_q = Q / 4;
         return (x >= quarter_q && x <= Q - quarter_q) ? 1 : 0;
     }
+
+    // Compute all proper divisors of N (excluding N)
+    static std::vector<uint64_t> proper_divisors(uint64_t N) {
+        std::vector<uint64_t> divisors;
+        for (uint64_t i = 1; i * i <= N; ++i) {
+            if (N % i == 0) {
+                divisors.push_back(i);
+                if (i != 1 && i != N / i) {
+                    divisors.push_back(N / i);
+                }
+            }
+        }
+        return divisors;
+    }
+
+    static bool is_primitive_nth_root(T uroot, uint64_t N) {
+        if (pow(uroot, N) != 1)
+            return false;
+    
+        auto divisors = proper_divisors(N);
+        for (uint64_t d : divisors) {
+            if (d == N) continue;
+            if (pow(uroot, d) == 1)
+                return false;
+        }
+    
+        return true;
+    }
 };

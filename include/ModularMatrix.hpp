@@ -25,7 +25,7 @@ struct ModularMatrix {
         return data[i * cols + j];
     }
 
-    void generate_from_hash(const NTTContext<Q, N>& ctx, seed_t seed) {
+    void generate_from_hash(const NTTContext<Q, N>& ctx, int seed) {
 
         std::default_random_engine generator(seed);
         std::uniform_int_distribution<int> distribution(0, Q);
