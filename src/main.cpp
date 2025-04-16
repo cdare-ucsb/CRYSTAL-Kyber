@@ -1,4 +1,3 @@
-#include "ModularInt.hpp"
 #include <iostream>
 #include <cstdlib>  // for system()
 #include <termios.h>
@@ -6,7 +5,6 @@
 #include <fcntl.h>
 
 #include "ModularMatrix.hpp"
-#include "SmallestUInt.hpp"
 #include "ModularArith.hpp"
 #include "ModularInt.hpp"
 #include "NTT.hpp"
@@ -31,14 +29,13 @@ enum class InputKey {
 };
 
 struct KyberParams {
-    uint64_t Q;
+    uint32_t Q;
     size_t N;
-    uint64_t uroot;
+    uint32_t uroot;
     uint8_t k;
     uint8_t eta1;
     uint8_t eta2;
 };
-
 
 struct AppState {
     Page current;
@@ -46,11 +43,11 @@ struct AppState {
     int main_menu_selection = 0;
     int seed_menu_selection = 0;
     std::string user_seed;
-    int seed = 0;
+    unsigned long seed = 0;
     KyberParams params;
+    ModularMatrix matrix;
+    NTTContext ntt_ctx;
 };
-
-
 
 
 
@@ -192,7 +189,7 @@ void print_seed_menu(AppState& state, int selected) {
     }
 }
 
-void print_matrix_menu(int seed) { 
+void print_matrix_menu(AppState& state) { 
     std::cout << "\033[2J\033[H"; // Clear + reset cursor position
     std::cout << "\033[32m";
     std::cout << R"(
@@ -207,10 +204,14 @@ void print_matrix_menu(int seed) {
                                                     |___/                 
    )" << "\033[0m";
 
-    // Keep printed parameters above the seed menu
-    std::cout << "Matrix A Generated" << std::endl;
+    
+   state.matrix =  ModularMatrix(state.params.k, state.params.k, state.ntt_ctx);
 
 
+    ModularInt upper_left = state.matrix(0, 0); // Assuming '()' is the correct operator for accessing elements
+    ModularInt upper_right = state.matrix(0, state.params.k-1);
+    ModularInt lower_left = state.matrix(state.params.k-1, 0);
+    ModularInt lower_right = state.matrix(state.params.k-1, state.params.k-1);
 
     
     std::cout << "> \033[1m" << "Continue" << "\033[0m\n";
@@ -218,7 +219,7 @@ void print_matrix_menu(int seed) {
 }
 
 KyberParams print_kyber_param_menu() {
-    uint64_t Q, uroot;
+    uint32_t Q, uroot;
     size_t N;
     uint8_t k, eta1, eta2;
     bool valid_Q = false, valid_N = false, valid_root = false;
@@ -257,6 +258,18 @@ KyberParams print_kyber_param_menu() {
                     std::getline(std::cin, input); // wait
                     continue;
                 }
+                else if (Q >= std::numeric_limits<uint32_t>::max()) {
+                    std::cout << "\033[31mError: Q must be less than " << std::numeric_limits<uint32_t>::max() << ".\033[0m\n";
+                    std::cout << "Press ENTER to try again...";
+                    std::getline(std::cin, input); // wait
+                    continue;
+                }
+                else if (Q <= 2) {
+                    std::cout << "\033[31mError: Q must be greater than 2.\033[0m\n";
+                    std::cout << "Press ENTER to try again...";
+                    std::getline(std::cin, input); // wait
+                    continue;
+                }
                 valid_Q = true;
             }
 
@@ -278,8 +291,8 @@ KyberParams print_kyber_param_menu() {
                 std::getline(std::cin, input);
                 uroot = std::stoul(input);
 
-                using MA = ModArith<Q>;
-                if (!MA::is_primitive_nth_root(uroot, N)) {
+                auto MA = ModularArith(Q);
+                if (!MA.is_primitive_nth_root(uroot, N)) {
                     std::cout << "\033[31mError: The root is not a primitive N-th root of unity.\033[0m\n";
                     std::cout << "Press ENTER to try again...";
                     std::getline(std::cin, input); // wait
@@ -293,14 +306,48 @@ KyberParams print_kyber_param_menu() {
                 std::cout << "\tk\t(matrix dimension)\t\t\t:\t";
                 std::getline(std::cin, input);
                 k = std::stoi(input);
+
+                if (k <= 0) {
+                    std::cout << "\033[31mError: The matrix dimension must be positive.\033[0m\n";
+                    std::cout << "Press ENTER to try again...";
+                    std::getline(std::cin, input); // wait
+                    continue;
+                }
+                else if (k >= std::numeric_limits<uint8_t>::max()) {
+                    std::cout << "\033[31mError: The matrix dimension must be less than " << std::numeric_limits<uint8_t>::max() << ".\033[0m\n";
+                    std::cout << "Press ENTER to try again...";
+                    std::getline(std::cin, input); // wait
+                    continue;
+                }
+
+
                 valid_k = true;
             }
 
             if (!valid_eta1) {
                 std::cout << "\tη1\t(coefficient bound 1)\t\t\t:\t";
                 std::getline(std::cin, input);
-
                 eta1 = std::stoi(input);
+
+                if (eta1 > Q) {
+                    std::cout << "\033[31mError: The size bound cannot be larger than the modulus.\033[0m\n";
+                    std::cout << "Press ENTER to try again...";
+                    std::getline(std::cin, input); // wait
+                    continue;
+                }
+                else if (eta1 <= 0) {
+                    std::cout << "\033[31mError: The size bound must be positive.\033[0m\n";
+                    std::cout << "Press ENTER to try again...";
+                    std::getline(std::cin, input); // wait
+                    continue;
+                }
+                else if (eta1 >= std::numeric_limits<uint8_t>::max()) {
+                    std::cout << "\033[31mError: The size bound must be less than " << std::numeric_limits<uint8_t>::max() << ".\033[0m\n";
+                    std::cout << "Press ENTER to try again...";
+                    std::getline(std::cin, input); // wait
+                    continue;
+                }
+
                 valid_eta1 = true;
             }
 
@@ -308,6 +355,26 @@ KyberParams print_kyber_param_menu() {
                 std::cout << "\tη2\t(coefficient bound 2)\t\t\t:\t";
                 std::getline(std::cin, input);
                 eta2 = std::stoi(input);
+                if (eta2 > Q) {
+                    std::cout << "\033[31mError: The size bound cannot be larger than the modulus.\033[0m\n";
+                    std::cout << "Press ENTER to try again...";
+                    std::getline(std::cin, input); // wait
+                    continue;
+                }
+                else if (eta2 <= 0) {
+                    std::cout << "\033[31mError: The size bound must be positive.\033[0m\n";
+                    std::cout << "Press ENTER to try again...";
+                    std::getline(std::cin, input); // wait
+                    continue;
+                }
+                else if (eta2 >= std::numeric_limits<uint8_t>::max()) {
+                    std::cout << "\033[31mError: The size bound must be less than " << std::numeric_limits<uint8_t>::max() << ".\033[0m\n";
+                    std::cout << "Press ENTER to try again...";
+                    std::getline(std::cin, input); // wait
+                    continue;
+                }
+
+
                 valid_eta2 = true;
             }
 
@@ -328,7 +395,7 @@ KyberParams print_kyber_param_menu() {
 
 
 
-std::string print_seed_input_menu() { 
+unsigned long print_seed_input_menu() { 
     std::string user_seed;
 
     set_raw_mode(false);  // Disable raw mode for full std::cin interaction
@@ -352,7 +419,7 @@ std::string print_seed_input_menu() {
         std::getline(std::cin, user_seed);  // Safely read entire line
 
         try {
-            std::stoi(user_seed);
+            std::stoul(user_seed);
             break;  // valid input
         } catch (...) {
             std::cout << "\n\033[31mInvalid input. Please enter a valid integer.\033[0m\n";
@@ -367,7 +434,7 @@ std::string print_seed_input_menu() {
     // Clear any leftover characters in the stdin buffer
     tcflush(STDIN_FILENO, TCIFLUSH);
 
-    return user_seed;
+    return std::stoul(user_seed);
 }
 
 
@@ -379,6 +446,7 @@ void handle_main_menu(AppState& state, char c) {
             if (state.main_menu_selection == 0) {
                 state.current = Page::SeedMenu;
                 state.params = KyberParams{3329, 256, 17, 3, 2, 2};
+                state.ntt_ctx = NTTContext(state.params.Q, state.params.N, state.params.uroot);
             } else {
                 state.current = Page::KyberParamInput;
             }
@@ -431,20 +499,12 @@ void handle_seed_menu(AppState& state, char c) {
 
 void handle_kyber_param_input(AppState& state) {
     state.params = print_kyber_param_menu();
-    
-    // Parse input
-
+    state.ntt_ctx = NTTContext(state.params.Q, state.params.N, state.params.uroot);
     state.current = Page::SeedMenu;
 }
 
-
-
-
 void handle_seed_input(AppState& state) {
-    std::string user_seed = print_seed_input_menu();
-    
-    /// TODO: Add parsing here
-    state.seed = std::stoi(user_seed);
+    state.seed = print_seed_input_menu();
 
     std::cout << "\n\n\n\t\t\tSeed " << state.seed << " stored in state......\n";
     std::cout << "\t\t\tPress any key to continue...\n";
@@ -454,7 +514,7 @@ void handle_seed_input(AppState& state) {
 
 void handle_matrix_generated(AppState& state) {
 
-    print_matrix_menu(0);  // or 1 if using preset seed
+    print_matrix_menu(state);  // or 1 if using preset seed
     char c;
     while (read(STDIN_FILENO, &c, 1) == 1) {
         if (get_input_key(c) == InputKey::Escape) {

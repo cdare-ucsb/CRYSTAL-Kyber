@@ -1,96 +1,75 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
+#include <variant>
 #include <type_traits>
-#include "SmallestUInt.hpp"
+#include <limits>
+#include <stdexcept>
+#include <cmath>
 
-template <uint64_t Q>
-struct ModArith {
-    using T = SmallestUInt_t<Q>;
-    using WideT = std::conditional_t<(sizeof(T) <= 2), uint32_t, uint64_t>;
 
-    static constexpr T add(T a, T b) {
-        T sum = a + b;
-        return (sum >= Q) ? sum - Q : sum;
+class ModularArith {
+public:
+    uint32_t Q;
+    
+    ModularArith(uint32_t q) : Q(q) {
+        if (q < 2) throw std::invalid_argument("Modulus Q must be >= 2");
     }
 
-    static constexpr T sub(T a, T b) {
+    uint32_t add(uint32_t a, uint32_t b) const {
+        auto sum = a + b;
+         return (sum >= Q) ? sum - Q : sum; 
+    };
+
+    uint32_t sub(uint32_t a, uint32_t b) const {
         return (a >= b) ? a - b : a + Q - b;
     }
 
-    static constexpr T mul(T a, T b) {
-        return static_cast<T>(static_cast<WideT>(a) * b % Q);
+    uint32_t mul(uint32_t a, uint32_t b) const {
+        return static_cast<uint32_t>(  ( static_cast<uint64_t>(a) * static_cast<uint64_t>(b)) % Q);
+    }
+    uint32_t neg(uint32_t x) const {
+        return  (x == 0) ? 0 : Q - x;
     }
 
-    static constexpr T pow(T base, uint64_t exp) {
-        WideT result = 1;
-        WideT b = base % Q;
+    uint32_t pow(uint32_t base, uint32_t exp) const {
+            uint64_t result = 1;
+            uint64_t x = base % Q;
+            while (exp > 0) {
+                if (exp & 1) result = (result * x) % Q;
+                x =  (x * x) % Q;
+                exp >>= 1;
+            }
+            return static_cast<uint32_t>(result);
 
-        while (exp > 0) {
-            if (exp & 1)
-                result = (result * b) % Q;
-            b = (b * b) % Q;
-            exp >>= 1;
-        }
-        return static_cast<T>(result);
     }
 
-    static constexpr T inv(T a) {
+    uint32_t inv(uint32_t a) const {
         return pow(a, Q - 2); // Assumes Q is prime
     }
 
-    static constexpr T neg(T a) {
-        return (a == 0) ? 0 : Q - a;
+    uint32_t size(uint32_t a) const {
+        return (a <= (Q - 1) / 2) ? a : Q - a;
     }
 
-    /*!
-    * \brief Computes the size of an element in Z_Q, defined as the absolute value
-    *        of its symmetric representative in the range [-(Q-1)/2, (Q-1)/2]
-    *
-    * \param x An element of Z_Q
-    * \return The size (non-negative distance from 0) in Z_Q
-    */
-    static constexpr T size(T x) {
-        return (x <= (Q - 1) / 2) ? x : Q - x;
+    uint32_t round(uint32_t x) const {
+            uint32_t q4 = Q / 4;
+            return (x >= q4 && x <= Q - q4) ? 1 : 0;
     }
 
-
-    /*!
-     * \brief Rounds an element x ∈ Z_Q to {0, 1} depending on closeness to 0 or Q/2
-     *
-     * \return 0 if x ∈ [0, Q/4) ∪ (3Q/4, Q)
-     *         1 if x ∈ [Q/4, 3Q/4]
-     */
-    static constexpr T round(T x) {
-        constexpr T quarter_q = Q / 4;
-        return (x >= quarter_q && x <= Q - quarter_q) ? 1 : 0;
-    }
-
-    // Compute all proper divisors of N (excluding N)
-    static std::vector<uint64_t> proper_divisors(uint64_t N) {
-        std::vector<uint64_t> divisors;
-        for (uint64_t i = 1; i * i <= N; ++i) {
-            if (N % i == 0) {
-                divisors.push_back(i);
-                if (i != 1 && i != N / i) {
-                    divisors.push_back(N / i);
-                }
-            }
-        }
-        return divisors;
-    }
-
-    static bool is_primitive_nth_root(T uroot, uint64_t N) {
-        if (pow(uroot, N) != 1)
-            return false;
+    bool is_primitive_nth_root(uint32_t u, uint32_t N) const {
+        uint32_t res = pow(u, N);
+        if (res != 1) return false;
     
-        auto divisors = proper_divisors(N);
-        for (uint64_t d : divisors) {
-            if (d == N) continue;
-            if (pow(uroot, d) == 1)
-                return false;
+        for (uint32_t d = 1; d < N; ++d) {
+            if (N % d == 0) {
+                uint32_t subres = pow(u, d);
+                if (subres == 1) return false;
+            }
         }
     
         return true;
     }
+
 };
