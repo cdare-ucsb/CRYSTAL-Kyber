@@ -1,109 +1,105 @@
 #pragma once
 
-#include <array>
-#include <vector>
-#include <cstdint>
-#include <type_traits>
-#include <limits>
-#include <cmath>
-#include <bit> 
-#include <variant>
-#include "ModularArith.hpp"
 
-
+#include <cassert>
 
 
 class ModularInt {
 public:
 
-    // using CoeffType = SmallestUInt_t<Q>;
-    // using MA = ModArith<Q>;
-
     uint32_t Q;
-    size_t N;
-    size_t bitlen;
-    std::vector<uint32_t> coeffs;
+    uint32_t val;
 
+    ModularInt() : Q(std::numeric_limits<uint32_t>::max()), val(0) {}
+
+    ModularInt(uint32_t v, uint32_t q) : Q(q), val(v % q) {}
+
+
+    ModularInt operator+(const ModularInt& other) const {
+        assert(Q == other.Q);
+        return ModularInt((val + other.val) % Q, Q);
+    }
     
-
-    ModularInt(uint64_t q, size_t n)
-        : Q(q), N(n)
-    {
-        coeffs = std::vector<uint32_t>(N);
-        bitlen = std::bit_width(q);
+    ModularInt operator-(const ModularInt& other) const {
+        assert(Q == other.Q);
+        return ModularInt((val + Q - other.val) % Q, Q);
     }
 
-    // Non-const accessor
-    uint32_t& operator[](size_t idx) {
-        return coeffs[idx];
+    ModularInt operator*(const ModularInt& other) const {
+        assert(Q == other.Q);
+        return ModularInt((static_cast<uint64_t>(val) * other.val) % Q, Q);
     }
 
-    // Const accessor
-    const uint32_t& operator[](size_t idx) const {
-        return coeffs[idx];
+    ModularInt operator/(const ModularInt& other) const {
+        assert(Q == other.Q);
+        return ModularInt((static_cast<uint64_t>(val) * other.inv().val) % Q, Q);
+    }
+    ModularInt inv() const {
+        assert(Q > 1);
+        return pow(Q - 2);
     }
 
+    explicit operator uint32_t() const {
+        return val;
+    }
+
+
+    ModularInt pow(uint32_t exp) const {
+        uint64_t base = static_cast<uint64_t>(val);
+        uint64_t result = 1;
+        uint64_t x = base % Q;
+        while (exp > 0) {
+            if (exp & 1) result = (result * x) % Q;
+            x = (x * x) % Q;
+            exp >>= 1;
+        }
+        return ModularInt(static_cast<uint32_t>(result), Q);
+    }
+
+    uint32_t size() const {
+        return (val <= (Q - 1) / 2) ? val : Q - val;
+    }
+    uint32_t round() const {
+        uint32_t q4 = Q / 4;
+        return (val >= q4 && val <= Q - q4) ? 1 : 0;
+    }
+
+    // Compare with another ModularInt
+    bool operator==(const ModularInt& other) const {
+        return Q == other.Q && val == other.val;
+    }
+
+    // Compare with uint32_t
+    bool operator==(uint32_t other_val) const {
+        return val == (other_val % Q);
+    }
+
+    // Compare with int (safe version)
+    bool operator==(int other_val) const {
+        if (other_val < 0)
+            return val == (Q - (static_cast<uint32_t>(-other_val) % Q));
+        return val == (static_cast<uint32_t>(other_val) % Q);
+    }
+
+    bool operator!=(const ModularInt& other) const { return !(*this == other); }
+    bool operator!=(uint32_t other_val) const { return !(*this == other_val); }
+    bool operator!=(int other_val) const { return !(*this == other_val); }
+
+
+    std::string to_string() const {
+        return std::to_string(val); // Assuming `value` is the internal representation
+    }
+
+    bool is_primitive_nth_root(uint32_t N) const {
+        if (pow(N) != 1) return false;
     
-
+        for (uint32_t d = 1; d < N; ++d) {
+            if (N % d == 0) {
+                if (pow(d) == 1) return false;
+            }
+        }
     
-    uint32_t sup_norm() const {
-        uint32_t max_val = 0;
-
-        for (auto c : coeffs) {
-            uint32_t size = (c > Q / 2) ? (Q - c) : c;
-            if (size > max_val) max_val = size;
-        }
-
-        return max_val;
-    }
-
-    size_t packed_bytes() const {
-        return (bitlen * N + 7) / 8;
-    }
-
-
-
-    std::vector<uint8_t> pack() const {
-        size_t out_size = packed_bytes();
-        std::vector<uint8_t> out(out_size, 0);
-        size_t bitpos = 0;
-
-        for (size_t i = 0; i < N; ++i) {
-            uint64_t val = coeffs[i] & ((1ULL << bitlen) - 1);
-
-            size_t byte_index = bitpos / 8;
-            int bit_offset = bitpos % 8;
-
-            out[byte_index] |= (val << bit_offset) & 0xFF;
-            if (bit_offset + bitlen > 8)
-                out[byte_index + 1] |= (val >> (8 - bit_offset)) & 0xFF;
-            if (bit_offset + bitlen > 16)
-                out[byte_index + 2] |= (val >> (16 - bit_offset)) & 0xFF;
-
-            bitpos += bitlen;
-        }
-
-
-        return out;
-    }
-
-    void unpack(const std::vector<uint8_t>& in) {
-        size_t bitpos = 0;
-
-        for (size_t i = 0; i < N; ++i) {
-            size_t byte_index = bitpos / 8;
-            int bit_offset = bitpos % 8;
-
-            uint32_t val = (in[byte_index] >> bit_offset);
-            if (bit_offset + bitlen > 8)
-                val |= (in[byte_index + 1] << (8 - bit_offset));
-            if (bit_offset + bitlen > 16)
-                val |= (in[byte_index + 2] << (16 - bit_offset));
-
-            coeffs[i] = val & ((1ULL << bitlen) - 1);
-            bitpos += bitlen;
-        }
-
+        return true;
     }
 
 };

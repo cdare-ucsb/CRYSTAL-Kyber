@@ -26,6 +26,18 @@ include_directories(include)
 # Define the main executable target
 add_executable(main src/main.cpp)
 
+find_path(SODIUM_INCLUDE_DIR sodium.h)
+find_library(SODIUM_LIB sodium)
+
+if(NOT SODIUM_INCLUDE_DIR OR NOT SODIUM_LIB)
+    message(FATAL_ERROR "libsodium not found! Make sure it's installed via Homebrew.")
+endif()
+
+target_include_directories(main PRIVATE ${SODIUM_INCLUDE_DIR})
+target_link_libraries(main PRIVATE ${SODIUM_LIB})
+
+find_package(OpenSSL REQUIRED)
+target_link_libraries(main PRIVATE OpenSSL::Crypto)
 
 
 enable_testing()
@@ -33,31 +45,31 @@ enable_testing()
 add_executable(modular_int_tests
     tests/test_ModularInt.cpp
 )
-
-add_executable(NTT_tests
-    tests/test_NTT.cpp
+add_executable(modular_poly_tests
+    tests/test_ModularPoly.cpp
+)
+add_executable(key_gen_tests
+    tests/test_KeyGen.cpp
 )
 
-add_executable(modular_arith_tests
-    tests/test_ModularArith.cpp
-)
 
 target_link_libraries(modular_int_tests
     gtest_main
 )
-
-target_link_libraries(NTT_tests
+target_link_libraries(modular_poly_tests
     gtest_main
 )
-
-target_link_libraries(modular_arith_tests
+target_link_libraries(key_gen_tests
     gtest_main
+    OpenSSL::Crypto
 )
+
+
 
 include(GoogleTest)
 gtest_discover_tests(modular_int_tests)
-gtest_discover_tests(NTT_tests)
-gtest_discover_tests(modular_arith_tests)
+gtest_discover_tests(modular_poly_tests)
+gtest_discover_tests(key_gen_tests)
 
 
 

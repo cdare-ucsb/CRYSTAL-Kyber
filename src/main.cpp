@@ -3,12 +3,22 @@
 #include <termios.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sodium.h> // or another crypto-safe RNG
+
+#include <openssl/evp.h>  // For SHAKE128,256
+
+#include <string>
+#include <iomanip> // For std::setw and std::setfill
+
+
 
 #include "ModularMatrix.hpp"
-#include "ModularArith.hpp"
 #include "ModularInt.hpp"
-#include "NTT.hpp"
+#include "ModularPoly.hpp"
 #include "NTTUtils.hpp"
+#include "KeyGen.hpp"
+
+
 
 
 enum class Page {
@@ -43,7 +53,9 @@ struct AppState {
     int main_menu_selection = 0;
     int seed_menu_selection = 0;
     std::string user_seed;
-    unsigned long seed = 0;
+    std::array<uint8_t, 32> seed;    // optional: original entropy
+    std::array<uint8_t, 32> rho;     // public matrix seed
+    std::array<uint8_t, 32> sigma;   // secret noise seed
     KyberParams params;
     ModularMatrix matrix;
     NTTContext ntt_ctx;
@@ -199,22 +211,44 @@ void print_matrix_menu(AppState& state) {
 | /  \/| |_/ /\ V /\ `--.  | |/ /_\ \| |      | |/ / _   _| |__   ___ _ __ 
 | |    |    /  \ /  `--. \ | ||  _  || |      |    \| | | | '_ \ / _ \ '__|
 | \__/\| |\ \  | | /\__/ / | || | | || |____  | |\  \ |_| | |_) |  __/ |   
-\____/\_| \_| \_/ \____/  \_/\_| |_/\_____/  \_| \_/\__, |_.__/ \___|_|   
+\_____/\_| \_| \_/ \____/  \_/\_| |_/\_____/  \_| \_/\__, |_.__/ \___|_|   
                                                      __/ |                
                                                     |___/                 
    )" << "\033[0m";
 
     
-   state.matrix =  ModularMatrix(state.params.k, state.params.k, state.ntt_ctx);
+    generate_modular_matrix(state.matrix, state.rho);
 
 
-    ModularInt upper_left = state.matrix(0, 0); // Assuming '()' is the correct operator for accessing elements
-    ModularInt upper_right = state.matrix(0, state.params.k-1);
-    ModularInt lower_left = state.matrix(state.params.k-1, 0);
-    ModularInt lower_right = state.matrix(state.params.k-1, state.params.k-1);
+    ModularPoly upper_left = state.matrix(0, 0); // Assuming '()' is the correct operator for accessing elements
+    ModularPoly upper_right = state.matrix(0, state.params.k-1);
+    ModularPoly lower_left = state.matrix(state.params.k-1, 0);
+    ModularPoly lower_right = state.matrix(state.params.k-1, state.params.k-1);
+
+    std::string upper_matrix_str = "\t\t|" + upper_left.to_string() + "\t\t...\t\t" + upper_right.to_string() + "|\n";
+    std::string lower_matrix_str = "\t\t|" + lower_left.to_string() + "\t\t...\t\t" + lower_right.to_string() + "|\n";
+    size_t upper_matrix_str_len = upper_matrix_str.length();
+
+    std::cout << "\n\t\t\tMatrix generated:\n\n";
+
+    std::cout << "\n"
+              << "\t\t /" << std::string(upper_matrix_str_len+14, ' ') << "\\ \n"
+              << upper_matrix_str 
+              << "\t\t|" << std::string(upper_matrix_str_len+16, ' ') << "|\n"
+              << "\t\t|" << std::string(upper_matrix_str_len+16, ' ') << "|\n"
+              << "\t\t|     ." << std::string(upper_matrix_str_len+4, ' ') << ".     |\n"
+              << "\t\t|     ." << std::string(upper_matrix_str_len+4, ' ') << ".     |\n"
+              << "\t\t|     ." << std::string(upper_matrix_str_len+4, ' ') << ".     |\n"
+              << "\t\t|" << std::string(upper_matrix_str_len+16, ' ') << "|\n"
+              << "\t\t|" << std::string(upper_matrix_str_len+16, ' ') << "|\n"
+              << lower_matrix_str
+              << "\t\t \\" << std::string(upper_matrix_str_len+14, ' ') << "/ \n"
+              << "\n\n";
+
+
 
     
-    std::cout << "> \033[1m" << "Continue" << "\033[0m\n";
+    std::cout << "> \033[1m" << "Produce public key" << "\033[0m\n";
 
 }
 
@@ -291,8 +325,9 @@ KyberParams print_kyber_param_menu() {
                 std::getline(std::cin, input);
                 uroot = std::stoul(input);
 
-                auto MA = ModularArith(Q);
-                if (!MA.is_primitive_nth_root(uroot, N)) {
+                ModularInt w(uroot, Q);
+
+                if (!w.is_primitive_nth_root(N)) {
                     std::cout << "\033[31mError: The root is not a primitive N-th root of unity.\033[0m\n";
                     std::cout << "Press ENTER to try again...";
                     std::getline(std::cin, input); // wait
@@ -395,15 +430,16 @@ KyberParams print_kyber_param_menu() {
 
 
 
-unsigned long print_seed_input_menu() { 
-    std::string user_seed;
+std::array<uint8_t, 32> print_seed_input_menu() { 
+    std::string input;
+    std::array<uint8_t, 32> result = {};
 
     set_raw_mode(false);  // Disable raw mode for full std::cin interaction
 
-    while (true) {
-        std::cout << "\033[2J\033[H"; // Clear + reset cursor position
-        std::cout << "\033[32m";
-        std::cout << R"(
+    
+    std::cout << "\033[2J\033[H"; // Clear + reset cursor position
+    std::cout << "\033[32m";
+    std::cout << R"(
 
  _____ ________   _______ _____ ___   _        _   __      _               
 /  __ \| ___ \ \ / /  ___|_   _/ _ \ | |      | | / /     | |              
@@ -415,26 +451,38 @@ unsigned long print_seed_input_menu() {
                                                     |___/                 
        )" << "\033[0m";
 
-        std::cout << "\nEnter seed value (must be a valid integer): ";
-        std::getline(std::cin, user_seed);  // Safely read entire line
-
-        try {
-            std::stoul(user_seed);
-            break;  // valid input
-        } catch (...) {
-            std::cout << "\n\033[31mInvalid input. Please enter a valid integer.\033[0m\n";
-            std::cout << "Press ENTER to try again...";
-            std::string dummy;
-            std::getline(std::cin, dummy);  // Wait for ENTER before retrying
-        }
-    }
+    std::cout << "\nEnter seed value (length at most 32): ";
+    std::getline(std::cin, input);  // Safely read entire line
+    
+    // Convert the string to a byte array
+    std::copy_n(input.begin(), std::min(input.size(), size_t(32)), result.begin());
 
     set_raw_mode(true);  // Re-enable raw mode when done
 
     // Clear any leftover characters in the stdin buffer
     tcflush(STDIN_FILENO, TCIFLUSH);
 
-    return std::stoul(user_seed);
+    return result;
+}
+
+
+void print_public_key_menu() {
+
+    std::cout << "\033[2J\033[H"; // Clear screen
+    std::cout << "\033[32m";
+    std::cout << R"(
+
+ _____ ________   _______ _____ ___   _        _   __      _               
+/  __ \| ___ \ \ / /  ___|_   _/ _ \ | |      | | / /     | |              
+| /  \/| |_/ /\ V /\ `--.  | |/ /_\ \| |      | |/ / _   _| |__   ___ _ __ 
+| |    |    /  \ /  `--. \ | ||  _  || |      |    \| | | | '_ \ / _ \ '__|
+| \__/\| |\ \  | | /\__/ / | || | | || |____  | |\  \ |_| | |_) |  __/ |   
+ \____/\_| \_| \_/ \____/  \_/\_| |_/\_____/  \_| \_/\__, |_.__/ \___|_|   
+                                                      __/ |                
+                                                     |___/                 
+)" << "\033[0m";
+
+
 }
 
 
@@ -474,7 +522,36 @@ void handle_seed_menu(AppState& state, char c) {
         case InputKey::Enter:
             if (state.seed_menu_selection == 0) {
                 std::cout << "\n\nUsing random seed...\n";
-                state.seed = rand() % 1000000;  // Random seed for demonstration
+
+                randombytes_buf(state.seed.data(), state.seed.size());  // uniformly random seed
+
+                uint8_t out[32];  // 32 bytes output
+                EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+                EVP_DigestInit_ex(ctx, EVP_shake256(), nullptr);
+                EVP_DigestUpdate(ctx, state.seed.data(), state.seed.size());
+                EVP_DigestFinalXOF(ctx, out, 32);
+                EVP_MD_CTX_free(ctx);
+
+                std::copy(out, out + 32, state.rho.begin());
+
+                std::cout << "\t\t\tSeed ";
+                for (uint8_t byte : state.seed) {
+                    std::cout << std::hex << std::setw(2) << std::setfill('0')
+                              << static_cast<int>(byte);
+                }
+                std::cout << " stored in state......\n";
+                std::cout << "\t\t\tPress any key to continue...\n";
+
+                while (read(STDIN_FILENO, &c, 1) == 1) {
+                    if (get_input_key(c) == InputKey::Escape) {
+                        state.current = Page::Exit;
+                        return;
+                    }
+                    else if (get_input_key(c) == InputKey::Enter) {
+                        break;
+                    }
+                }
+
                 state.current = Page::MatrixGenerated;
             } else {
                 std::cout << "Using pre-set seed...\n";
@@ -503,10 +580,19 @@ void handle_kyber_param_input(AppState& state) {
     state.current = Page::SeedMenu;
 }
 
-void handle_seed_input(AppState& state) {
-    state.seed = print_seed_input_menu();
 
-    std::cout << "\n\n\n\t\t\tSeed " << state.seed << " stored in state......\n";
+
+void handle_seed_input(AppState& state) {
+    state.rho = print_seed_input_menu();
+
+    std::cout << "\n\n\n\t\t\tSeed ";
+    for (uint8_t byte : state.rho) {
+        std::cout << std::hex << std::setw(2) << std::setfill('0')
+                  << static_cast<int>(byte);
+    }
+    
+    
+    std::cout << " stored in state......\n";
     std::cout << "\t\t\tPress any key to continue...\n";
 
     state.current = Page::MatrixGenerated;
@@ -514,14 +600,60 @@ void handle_seed_input(AppState& state) {
 
 void handle_matrix_generated(AppState& state) {
 
-    print_matrix_menu(state);  // or 1 if using preset seed
+    state.matrix = ModularMatrix(state.params.k, state.params.k, state.params.Q, state.params.N);
+
+    print_matrix_menu(state);  
+    // Convert matrix to NTT domain for faster multipliciation
+    for (auto& entry : state.matrix.data) {
+        entry.ctx = &state.ntt_ctx;
+        entry.NTT();
+    }
+
     char c;
     while (read(STDIN_FILENO, &c, 1) == 1) {
         if (get_input_key(c) == InputKey::Escape) {
             state.current = Page::Exit;
             return;
         }
+        else if (get_input_key(c) == InputKey::Enter) {
+            state.current = Page::MainMenu;
+            return;
+        }
     }
+}
+
+void handle_public_key(AppState& state) {
+
+    std::array<uint8_t, 32> sigma;
+
+    uint8_t out[32];  // 32 bytes output
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(ctx, EVP_shake256(), nullptr);
+    EVP_DigestUpdate(ctx, state.seed.data(), state.seed.size());
+    EVP_DigestFinalXOF(ctx, out, 32);
+    EVP_MD_CTX_free(ctx);
+
+    std::copy(out, out + 32, sigma.begin());
+
+    auto [vec_s, vec_e] = generate_secret_and_error_vectors(state.sigma, state.params.eta1, state.params.k, state.params.N, state.params.Q);
+
+    for (size_t i = 0; i < vec_s.size(); ++i) {
+        vec_s[i].ctx = &state.ntt_ctx;
+        vec_s[i].NTT();
+
+        vec_e[i].ctx = &state.ntt_ctx;
+        vec_e[i].NTT();
+    }
+
+    std::vector<ModularPoly> vec_t = state.matrix.apply_transform(vec_s);
+
+    for (size_t i = 0; i < vec_t.size(); ++i) {
+        vec_t[i].ctx = &state.ntt_ctx;
+        vec_t[i] = vec_t[i] + vec_e[i];
+        vec_t[i].INTT();
+    }
+
+
 }
 
 

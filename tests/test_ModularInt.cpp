@@ -1,109 +1,51 @@
 #include <gtest/gtest.h>
+#include "ModularPoly.hpp"
 #include "ModularInt.hpp"
 
-
-
-TEST(CopyCheck, ModularIntCopy) {
-    constexpr uint32_t Q = 3329;
-    constexpr size_t N = 256;
-    auto p = ModularInt(Q,N);
-
-    for (size_t i = 0; i < N; ++i)
-        p[i] = i % Q;
-
-    auto p_copy = p;
-
-
-    for (size_t i = 0; i < N; ++i) {
-        ASSERT_EQ(p[i], p_copy[i]) << "Mismatch at index " << i;
-    }
-}
-
-// TEST(ModularIntPacking, RoundTrip) {
-
-//     /// ML-KEM-768 Parameters
-//     constexpr uint32_t Q = 3329;
-//     constexpr size_t N = 256;
-//     auto p = ModularInt(Q, N);
-
-//     for (size_t i = 0; i < N; ++i)
-//         p[i] = i % Q;
-
-//     std::array<uint8_t, KEMPoly::PACKED_BYTES> buf;
-//     p.pack(buf);
-
-//     KEMPoly unpacked;
-//     unpacked.unpack(buf);
-
-//     for (size_t i = 0; i < N; ++i) {
-//         ASSERT_EQ(p[i], unpacked[i]);
-//     }
-// }
-
-// TEST(ModularIntStorage, StorageSizeSmall) {
-
-//     constexpr uint32_t Q = 17;
-//     constexpr size_t N = 3;
-//     auto p = ModularInt(Q, N);
-
-//     static_assert(std::is_same_v<typename SmallPoly::CoeffType, uint8_t>,
-//         "Expected uint8_t coefficient storage for Q <= 256");
-
-//     // Optional: Confirm actual size of storage
-//     EXPECT_EQ(sizeof(SmallPoly::CoeffType), 1);
-//     EXPECT_EQ(sizeof(SmallPoly), sizeof(uint8_t) * N);
-// }
-
-// TEST(ModularIntStorage, StorageSizeMedium) {
-
-//     constexpr uint32_t Q = 16383;
-//     constexpr size_t N = 80;
-//     using SmallPoly = ModularInt<Q, N>;
-
-//     static_assert(std::is_same_v<typename SmallPoly::CoeffType, uint16_t>,
-//         "Expected uint16_t coefficient storage for Q <= 65536");
-
-//     // Optional: Confirm actual size of storage
-//     EXPECT_EQ(sizeof(SmallPoly::CoeffType), 2);
-//     EXPECT_EQ(sizeof(SmallPoly), sizeof(uint16_t) * N);
-// }
-
-// TEST(ModularIntStorage, StorageSizeLarge) {
-
-//     constexpr uint32_t Q = 131071;
-//     constexpr size_t N = 320;
-//     using SmallPoly = ModularInt<Q, N>;
-
-//     static_assert(std::is_same_v<typename SmallPoly::CoeffType, uint32_t>,
-//         "Expected uint16_t coefficient storage for Q <= 4294967296");
-
-//     // Optional: Confirm actual size of storage
-//     EXPECT_EQ(sizeof(SmallPoly::CoeffType), 4);
-//     EXPECT_EQ(sizeof(SmallPoly), sizeof(uint32_t) * N);
-// }
-
-
-TEST(ModularIntSupNorm, SupNormTest) {
+TEST(ModularInt, AddTest) {
 
     constexpr uint32_t Q = 3329;
-    constexpr size_t N = 256;
-    auto p = ModularInt(Q, N);
+    
+    
+    ModularInt a(100, Q);
+    ModularInt b(200, Q);
 
-    for (size_t i = 0; i < N; ++i)
-        p[i] = i % Q;
-
-    uint16_t max_size = p.sup_norm();
-    ASSERT_EQ(max_size, N - 1);
+    ASSERT_EQ(a + b, ModularInt(300, Q));
+    ASSERT_EQ(a + ModularInt(300, Q), ModularInt(400, Q));
+    ASSERT_EQ(a + ModularInt(3229, Q), ModularInt(0, Q));
+    ASSERT_EQ(a + ModularInt(0, Q), a);
+    ASSERT_EQ(a + ModularInt(3329, Q), a);
+    
 }
-TEST(ModularIntSupNorm, SupNormNegativeTest) {
 
-    constexpr uint32_t Q = 17;
-    constexpr size_t N = 17;
-    auto p = ModularInt(Q, N);
+TEST(ModularInt, SubTest) {
 
-    for (size_t i = 0; i < N; ++i)
-        p[i] = i % Q;
+    constexpr uint32_t Q = 3329;
+    
+    
+    ModularInt a(100, Q);
+    ModularInt b(200, Q);
 
-    uint16_t max_size = p.sup_norm();
-    ASSERT_EQ(max_size, (Q-1) / 2);
+    ASSERT_EQ(a - b, ModularInt(3329 - 100, Q));
+    ASSERT_EQ(a - ModularInt(300, Q), ModularInt(3329 - 200, Q));
+    ASSERT_EQ(a - ModularInt(3229, Q), ModularInt(200, Q));
+    ASSERT_EQ(a - ModularInt(0, Q), a);
+    ASSERT_EQ(a - ModularInt(3329, Q), a);
+    
+}
+
+TEST(ModularInt, MulTest) {
+
+    constexpr uint32_t Q = 3329;
+    
+    
+    ModularInt a(100, Q);
+    ModularInt b(200, Q);
+
+    ASSERT_EQ(a * b, ModularInt(20000 % Q, Q));
+    ASSERT_EQ(a * ModularInt(300, Q), ModularInt(30000 % Q, Q));
+    ASSERT_EQ(a * ModularInt(0, Q), ModularInt(0, Q));
+    ASSERT_EQ(a * ModularInt(3329, Q), ModularInt(0, Q));
+
+    
 }

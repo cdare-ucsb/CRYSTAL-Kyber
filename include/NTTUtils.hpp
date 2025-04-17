@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <array>
 #include <bit>
-#include "ModularArith.hpp"
+#include "ModularInt.hpp"
 
 
 
@@ -28,30 +28,29 @@ constexpr size_t bit_reverse(size_t x, uint32_t log_n) {
 
 
 struct NTTContext {
-    uint32_t Q, inv_N, root, inv_root;
+    uint32_t Q;
+    ModularInt root, inv_root;
 
     size_t N, log_n;
     
     std::vector<size_t> bitrev;
 
-    std::vector<uint32_t> forward_twiddles;
-    std::vector<uint32_t> inverse_twiddles;
+    std::vector<ModularInt> forward_twiddles;
+    std::vector<ModularInt> inverse_twiddles;
 
     NTTContext() = default;
 
     NTTContext(uint32_t Q_, size_t N_, uint32_t root_)
-        : Q(Q_), N(N_), root(root_) {
+        : Q(Q_), N(N_)  {
 
-        auto mod_arith = ModularArith(Q_);
+        root = ModularInt(root_, Q);
+        inv_root = root.inv();
 
-        inv_root = mod_arith.inv(root);
-        inv_N = mod_arith.inv(N);
-
-        log_n = std::countr_zero(N);
+        log_n = std::countr_zero(N_);
 
         // === Bit-reversal table ===
-        bitrev.resize(N);
-        for (size_t i = 0; i < N; ++i)
+        bitrev.resize(N_);
+        for (size_t i = 0; i < N_; ++i)
             bitrev[i] = bit_reverse(i, log_n);
 
         // === Twiddle factors ===
@@ -59,8 +58,8 @@ struct NTTContext {
         inverse_twiddles.resize(log_n);
 
         for (size_t i = 0; i < log_n; ++i) {
-            forward_twiddles[i] = mod_arith.pow(root, 1ULL << i);
-            inverse_twiddles[i] = mod_arith.pow(inv_root, 1ULL << i);
+            forward_twiddles[i] = root.pow(1ULL << i);
+            inverse_twiddles[i] = inv_root.pow(1ULL << i);
         }
     }
     
