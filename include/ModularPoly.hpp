@@ -38,16 +38,17 @@ public:
     ModularPoly(size_t n, uint32_t q , const NTTContext* ctx = nullptr)
         : Q(q), N(n), coeffs(n, ModularInt(0, q)), ctx(ctx), NTTed(false)
     {
-
+        if (Q == 0) throw std::invalid_argument("ModularPoly constructed with Q = 0");
     }
 
     ModularPoly(const std::vector<uint32_t>& coeffs_in, uint32_t q, const NTTContext* ctx = nullptr)
         : Q(q), N(coeffs_in.size()), NTTed(false), ctx(ctx)
     {
-
+        if (Q == 0) throw std::invalid_argument("ModularPoly constructed with Q = 0");
+        
         this->coeffs.resize(N);
         for (size_t i = 0; i < N; ++i) {
-            this->coeffs[i] = ModularInt(q, coeffs_in[i]);
+            this->coeffs[i] = ModularInt(coeffs_in[i], q);
         }
     }
 

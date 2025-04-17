@@ -12,7 +12,9 @@ public:
 
     ModularInt() : Q(std::numeric_limits<uint32_t>::max()), val(0) {}
 
-    ModularInt(uint32_t v, uint32_t q) : Q(q), val(v % q) {}
+    ModularInt(uint32_t v, uint32_t q) : Q(q), val(v % q) {
+        if (q == 0) throw std::invalid_argument("Q cannot be zero");
+    }
 
 
     ModularInt operator+(const ModularInt& other) const {

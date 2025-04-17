@@ -27,6 +27,7 @@ enum class Page {
     SeedInput,
     KyberParamInput,
     MatrixGenerated,
+    PublicKeyGenerated,
     Exit
 };
 
@@ -56,6 +57,7 @@ struct AppState {
     std::array<uint8_t, 32> seed;    // optional: original entropy
     std::array<uint8_t, 32> rho;     // public matrix seed
     std::array<uint8_t, 32> sigma;   // secret noise seed
+    std::vector<ModularPoly> vec_t;
     KyberParams params;
     ModularMatrix matrix;
     NTTContext ntt_ctx;
@@ -177,6 +179,7 @@ void print_seed_menu(AppState& state, int selected) {
    )" << "\033[0m";
 
     // Keep printed parameters above the seed menu
+    std::cout << std::dec;
     std::cout << "\n\n\n\n Using values:\n"
               << "\t\tQ=" << state.params.Q << "\n"
               << "\t\tN="<< state.params.N << "\n"
@@ -212,8 +215,8 @@ void print_matrix_menu(AppState& state) {
 | |    |    /  \ /  `--. \ | ||  _  || |      |    \| | | | '_ \ / _ \ '__|
 | \__/\| |\ \  | | /\__/ / | || | | || |____  | |\  \ |_| | |_) |  __/ |   
 \_____/\_| \_| \_/ \____/  \_/\_| |_/\_____/  \_| \_/\__, |_.__/ \___|_|   
-                                                     __/ |                
-                                                    |___/                 
+                                                      __/ |                
+                                                     |___/                 
    )" << "\033[0m";
 
     
@@ -230,6 +233,7 @@ void print_matrix_menu(AppState& state) {
     size_t upper_matrix_str_len = upper_matrix_str.length();
 
     std::cout << "\n\t\t\tMatrix generated:\n\n";
+    std::cout << std::dec;
 
     std::cout << "\n"
               << "\t\t /" << std::string(upper_matrix_str_len+14, ' ') << "\\ \n"
@@ -277,7 +281,7 @@ KyberParams print_kyber_param_menu() {
 )" << "\033[0m";
 
         std::cout << "\nEnter Kyber Parameters (press ENTER to keep valid values):\n\n";
-
+        std::cout << std::dec;
         try {
             std::string input;
 
@@ -446,7 +450,7 @@ std::array<uint8_t, 32> print_seed_input_menu() {
 | /  \/| |_/ /\ V /\ `--.  | |/ /_\ \| |      | |/ / _   _| |__   ___ _ __ 
 | |    |    /  \ /  `--. \ | ||  _  || |      |    \| | | | '_ \ / _ \ '__|
 | \__/\| |\ \  | | /\__/ / | || | | || |____  | |\  \ |_| | |_) |  __/ |   
-\____/\_| \_| \_/ \____/  \_/\_| |_/\_____/  \_| \_/\__, |_.__/ \___|_|   
+\_____/\_| \_| \_/ \____/  \_/\_| |_/\_____/  \_| \_/\__, |_.__/ \___|_|   
                                                      __/ |                
                                                     |___/                 
        )" << "\033[0m";
@@ -466,7 +470,7 @@ std::array<uint8_t, 32> print_seed_input_menu() {
 }
 
 
-void print_public_key_menu() {
+void print_public_key_menu(AppState& state) {
 
     std::cout << "\033[2J\033[H"; // Clear screen
     std::cout << "\033[32m";
@@ -482,7 +486,34 @@ void print_public_key_menu() {
                                                      |___/                 
 )" << "\033[0m";
 
+    std::cout << "\n\n\t\t\t\t\tPublic Key:\n\n";
 
+    for (uint8_t byte : state.rho) {
+        std::cout << std::hex << std::setw(2) << std::setfill('0')
+                  << static_cast<int>(byte);
+    }
+
+    std::vector<uint8_t> buffer;
+    for (size_t i = 0; i < state.vec_t.size(); ++i) {
+        buffer = state.vec_t[i].pack();
+        for (uint8_t byte : buffer) {
+            std::cout << std::hex << std::setw(2) << std::setfill('0')
+                      << static_cast<int>(byte);
+        }
+    }
+    std::cout << "\n\n\t\t\t\t\tPress any key to continue...\n";
+
+    char c;
+    while (read(STDIN_FILENO, &c, 1) == 1) {
+        if (get_input_key(c) == InputKey::Escape) {
+            state.current = Page::Exit;
+            return;
+        }
+        else {
+            state.current = Page::MainMenu;
+            break;
+        }
+    }
 }
 
 
@@ -547,7 +578,7 @@ void handle_seed_menu(AppState& state, char c) {
                         state.current = Page::Exit;
                         return;
                     }
-                    else if (get_input_key(c) == InputKey::Enter) {
+                    else {
                         break;
                     }
                 }
@@ -585,7 +616,7 @@ void handle_kyber_param_input(AppState& state) {
 void handle_seed_input(AppState& state) {
     state.rho = print_seed_input_menu();
 
-    std::cout << "\n\n\n\t\t\tSeed ";
+    std::cout << "\n\t\t\t\t\tSeed ";
     for (uint8_t byte : state.rho) {
         std::cout << std::hex << std::setw(2) << std::setfill('0')
                   << static_cast<int>(byte);
@@ -593,7 +624,7 @@ void handle_seed_input(AppState& state) {
     
     
     std::cout << " stored in state......\n";
-    std::cout << "\t\t\tPress any key to continue...\n";
+    std::cout << "\t\t\t\t\tPress any key to continue...\n";
 
     state.current = Page::MatrixGenerated;
 }
@@ -609,17 +640,9 @@ void handle_matrix_generated(AppState& state) {
         entry.NTT();
     }
 
-    char c;
-    while (read(STDIN_FILENO, &c, 1) == 1) {
-        if (get_input_key(c) == InputKey::Escape) {
-            state.current = Page::Exit;
-            return;
-        }
-        else if (get_input_key(c) == InputKey::Enter) {
-            state.current = Page::MainMenu;
-            return;
-        }
-    }
+    state.current = Page::PublicKeyGenerated;
+
+    
 }
 
 void handle_public_key(AppState& state) {
@@ -635,6 +658,9 @@ void handle_public_key(AppState& state) {
 
     std::copy(out, out + 32, sigma.begin());
 
+    assert(state.params.Q > 1);
+    assert(state.params.N > 0);
+
     auto [vec_s, vec_e] = generate_secret_and_error_vectors(state.sigma, state.params.eta1, state.params.k, state.params.N, state.params.Q);
 
     for (size_t i = 0; i < vec_s.size(); ++i) {
@@ -645,14 +671,18 @@ void handle_public_key(AppState& state) {
         vec_e[i].NTT();
     }
 
-    std::vector<ModularPoly> vec_t = state.matrix.apply_transform(vec_s);
+    state.vec_t = state.matrix.apply_transform(vec_s);
 
-    for (size_t i = 0; i < vec_t.size(); ++i) {
-        vec_t[i].ctx = &state.ntt_ctx;
-        vec_t[i] = vec_t[i] + vec_e[i];
-        vec_t[i].INTT();
+    
+    for (size_t i = 0; i < state.vec_t.size(); ++i) {
+        state.vec_t[i].ctx = &state.ntt_ctx;
+        state.vec_t[i] = state.vec_t[i] + vec_e[i];
+        state.vec_t[i].INTT();
     }
 
+    print_public_key_menu(state);
+
+    state.current = Page::MainMenu;
 
 }
 
@@ -703,6 +733,9 @@ int main() {
             case Page::MatrixGenerated:
                 handle_matrix_generated(state);
                 break;
+            case Page::PublicKeyGenerated:
+                handle_public_key(state);
+                break;
             default:
                 state.current = Page::Exit;
                 break;
@@ -715,10 +748,7 @@ int main() {
             if (state.current == Page::SeedInput) {
                 handle_seed_input(state);
                 should_redraw = true;
-
-
                 continue;                              // go to top of loop
-
             }
 
             else if (state.current == Page::KyberParamInput) {
