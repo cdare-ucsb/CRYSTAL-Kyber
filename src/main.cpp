@@ -28,6 +28,7 @@ enum class Page {
     KyberParamInput,
     MatrixGenerated,
     PublicKeyGenerated,
+    MessageInput,
     Exit
 };
 
@@ -58,9 +59,12 @@ struct AppState {
     std::array<uint8_t, 32> rho;     // public matrix seed
     std::array<uint8_t, 32> sigma;   // secret noise seed
     std::vector<ModularPoly> vec_t;
+    std::vector<ModularPoly> vec_u;
+    ModularPoly vec_v = ModularPoly(0, 2); // Placeholder
     KyberParams params;
     ModularMatrix matrix;
     NTTContext ntt_ctx;
+    std::vector<uint8_t> pk_serialized;
 };
 
 
@@ -488,10 +492,14 @@ void print_public_key_menu(AppState& state) {
 
     std::cout << "\n\n\t\t\t\t\tPublic Key:\n\n";
 
+
     for (uint8_t byte : state.rho) {
         std::cout << std::hex << std::setw(2) << std::setfill('0')
                   << static_cast<int>(byte);
+        
     }
+    state.pk_serialized = std::vector<uint8_t>(state.rho.begin(), state.rho.end());
+
 
     std::vector<uint8_t> buffer;
     for (size_t i = 0; i < state.vec_t.size(); ++i) {
@@ -499,6 +507,7 @@ void print_public_key_menu(AppState& state) {
         for (uint8_t byte : buffer) {
             std::cout << std::hex << std::setw(2) << std::setfill('0')
                       << static_cast<int>(byte);
+            state.pk_serialized.push_back(byte);
         }
     }
     std::cout << "\n\n\t\t\t\t\tPress any key to continue...\n";
@@ -510,10 +519,45 @@ void print_public_key_menu(AppState& state) {
             return;
         }
         else {
-            state.current = Page::MainMenu;
+            state.current = Page::MessageInput;
             break;
         }
     }
+}
+
+std::array<uint8_t, 32> print_message_input_menu() {
+    std::string input;
+    std::array<uint8_t, 32> message = {};
+
+    set_raw_mode(false);  // Disable raw mode for full std::cin interaction
+
+    
+    std::cout << "\033[2J\033[H"; // Clear + reset cursor position
+    std::cout << "\033[32m";
+    std::cout << R"(
+
+ _____ ________   _______ _____ ___   _        _   __      _               
+/  __ \| ___ \ \ / /  ___|_   _/ _ \ | |      | | / /     | |              
+| /  \/| |_/ /\ V /\ `--.  | |/ /_\ \| |      | |/ / _   _| |__   ___ _ __ 
+| |    |    /  \ /  `--. \ | ||  _  || |      |    \| | | | '_ \ / _ \ '__|
+| \__/\| |\ \  | | /\__/ / | || | | || |____  | |\  \ |_| | |_) |  __/ |   
+\_____/\_| \_| \_/ \____/  \_/\_| |_/\_____/  \_| \_/\__, |_.__/ \___|_|   
+                                                      __/ |                
+                                                     |___/                 
+       )" << "\033[0m";
+
+    std::cout << "\nEnter a message for the original user: ";
+    std::getline(std::cin, input);  // Safely read entire line
+    
+    // Convert the string to a byte array
+    std::copy_n(input.begin(), std::min(input.size(), size_t(32)), message.begin());
+
+    set_raw_mode(true);  // Re-enable raw mode when done
+
+    // Clear any leftover characters in the stdin buffer
+    tcflush(STDIN_FILENO, TCIFLUSH);
+
+    return message;
 }
 
 
@@ -682,8 +726,82 @@ void handle_public_key(AppState& state) {
 
     print_public_key_menu(state);
 
+    /// TODO: change this back to MessageGenerated
     state.current = Page::MainMenu;
 
+}
+
+void handle_message_input(AppState& state) {
+    std::array<uint8_t, 32> message = print_message_input_menu();
+
+    std::array<uint8_t, 32> coins = derive_coins_from_message_and_pk(message, state.pk_serialized);
+
+    auto [vec_r, e1, e2] = generate_ephemeral_vectors(coins, 
+                                                state.params.eta1,
+                                                state.params.eta2, 
+                                                state.params.k, 
+                                                state.params.N, 
+                                                state.params.Q);
+    
+    // Construct vector u = A^T r + e1
+    {
+        auto vec_u = state.matrix.apply_transform(vec_r);
+        for (size_t i = 0; i < vec_u.size(); ++i) {
+            vec_u[i].ctx = &state.ntt_ctx;
+            vec_u[i] = vec_u[i] + e1[i];
+            vec_u[i].INTT();
+        }
+
+        state.vec_u = vec_u;
+    }
+
+    // Construct vector v = t^T r + e2 + round(q/2) msg
+    {
+       std::vector<ModularPoly> ret_vec(state.params.k, ModularPoly(state.params.N, state.params.Q));
+
+        for (size_t i = 0; i < state.vec_t.size(); ++i) {
+            ret_vec[i].ctx = &state.ntt_ctx;
+            vec_r[i].ctx = &state.ntt_ctx;
+
+            ret_vec[i] = state.vec_t[i] * vec_r[i];
+            ret_vec[i].INTT();
+        }
+
+        // sum all the entries of ret_vec
+        ModularPoly vec_v = ret_vec[0];
+        for (size_t i = 1; i < state.vec_t.size(); ++i) {
+            vec_v = vec_v + ret_vec[i];
+        }
+
+        vec_v = vec_v + e2;
+
+        const size_t N = 256;
+        const uint32_t q_half = static_cast<int>(std::floor(state.params.Q + 0.5));
+
+        std::vector<uint32_t> coeffs(N);
+
+        // Process 256 bits = 32 bytes
+        for (size_t byte_idx = 0; byte_idx < 32; ++byte_idx) {
+            uint8_t byte = message[byte_idx];
+
+            for (size_t bit = 0; bit < 8; ++bit) {
+                size_t poly_idx = byte_idx * 8 + bit;
+                if (poly_idx >= N) break;  // just in case
+                uint8_t bit_val = (byte >> bit) & 1;
+                coeffs[poly_idx] = bit_val ? q_half : 0;
+            }
+        }
+
+        ModularPoly msg_poly(coeffs, state.params.Q, &state.ntt_ctx);
+        vec_v = vec_v + msg_poly;
+
+        // Save to state
+        state.vec_v = vec_v;
+    }
+
+
+    // Need to add another page
+    state.current = Page::Exit;
 }
 
 
@@ -736,6 +854,10 @@ int main() {
             case Page::PublicKeyGenerated:
                 handle_public_key(state);
                 break;
+            case Page::MessageInput:
+                handle_message_input(state);
+                break;
+
             default:
                 state.current = Page::Exit;
                 break;

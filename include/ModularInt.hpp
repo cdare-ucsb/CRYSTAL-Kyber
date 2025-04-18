@@ -1,9 +1,26 @@
+/*!
+ * \file ModularInt.hpp
+ * \brief Header file for ModularInt class
+ * \author Chris Dare
+ * \date 2025-04-17
+ *
+ * This file contains the definition of the ModularInt class, which represents
+ * integers in ZZ_Q (i.e. the cyclic group of order Q). The class provides various arithmetic
+ * operations, including addition, subtraction, multiplication, and division.
+ * It also includes methods for exponentiation, modular inverse, and checking if the
+ * integer is a primitive N-th root of unity.
+ *
+*/
 #pragma once
-
-
 #include <cassert>
 
-
+/*!
+ * \brief Class representing integers in ZZ_Q
+ *
+ * This class provides modular arithmetic operations for integers in the range [0, Q).
+ * It supports addition, subtraction, multiplication, division, and exponentiation.
+ * It also provides methods for checking if the integer is a primitive N-th root of unity.
+ */
 class ModularInt {
 public:
 

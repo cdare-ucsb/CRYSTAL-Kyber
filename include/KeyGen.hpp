@@ -1,12 +1,22 @@
+/*!
+ * \file KeyGen.hpp
+ * \brief Key generation functions for Kyber-like schemes
+ * \author Chris Dare
+ * \date 2025-04-17
+ *
+ * This file contains functions for generating secret and error vectors,
+ * as well as modular polynomial entries and matrices.
+ */
 
 #pragma once
 
 #include <vector>
 #include <cstdint>
+#include <cstring>
 #include <cassert>
 #include <array>
 #include <iostream>
-#include <openssl/evp.h>  // Or use libsodium or your SHAKE128 library
+#include <openssl/evp.h>  // For SHAKE128,256
 
 #include "ModularInt.hpp"
 #include "ModularPoly.hpp"
@@ -21,9 +31,21 @@ void shake128_stream(uint8_t* out, size_t outlen, const uint8_t* seed, size_t se
 }
 
 
-/**
- * Fills `output` with `required` uniformly sampled uint32_t values mod Q
- * using 32-bit rejection sampling from `buf`
+/*!
+ * \brief Rejection sampling from a buffer
+ * \param output Pointer to the output array
+ * \param required Number of samples required
+ * \param buf Pointer to the input buffer
+ * \param buflen Length of the input buffer
+ * \param Q Modulus for the sampling
+ * 
+ * \return Number of samples successfully generated
+ * 
+ * This function samples uniformly from the range [0, Q) using rejection sampling.
+ * It reads 4 bytes at a time from the input buffer and checks if the value is less than Q.
+ * If it is, the value is added to the output array. The process continues until the required
+ * number of samples is generated or the buffer is exhausted.
+ * 
  */
 size_t rejection_sample(uint32_t* output, size_t required, const uint8_t* buf, size_t buflen, uint32_t Q) {
     size_t ctr = 0;
@@ -47,34 +69,62 @@ size_t rejection_sample(uint32_t* output, size_t required, const uint8_t* buf, s
 
 
 
-/**
- * Sample n_coeffs from CBD_η using a bitstream.
- * Requires 2η bits per coefficient: total buffer size should be at least ceil(n_coeffs * 2η / 8)
+/*!
+ * \brief CBD (Centroidal Voronoi Sampling / Central Binomial Distribution) function
+ * This function interprets the byte buffer `buf` as a bit stream and
+ * generates `n_coeffs` integer coefficients sampled from the centered
+ * binomial distribution `CBD_η`, where the output is in the range `[-η, η]`.
+ *
+ * For each output coefficient, the function samples `2η` bits from the input buffer:
+ * - The first `η` bits are summed to form `a`
+ * - The next `η` bits are summed to form `b`
+ * - The output coefficient is `a - b`, which lies in `[-η, η]`
+ *
+ * This approach is efficient and used in lattice-based cryptography schemes
+ * like CRYSTALS-Kyber and Dilithium for generating small, random secret values.
+ *
+ * @param buf       Pointer to a byte buffer containing random bits
+ * @param n_coeffs  Number of output coefficients to generate
+ * @param eta       Parameter η ≥ 1, controlling the distribution width
+ * @return std::vector<uint32_t> Output vector of size `n_coeffs`, where
+ *                               each element lies in `[-η, η]`
  */
+
 std::vector<uint32_t> cbd(const uint8_t* buf, size_t n_coeffs, uint8_t eta) {
-    assert(eta >= 1 && eta <= 4); // practical limit for Kyber
+    assert(eta >= 1); 
+
+    // Output vector to hold the sampled coefficients
     std::vector<uint32_t> result(n_coeffs);
 
+    // Track the current bit position in the buffer
     size_t bit_pos = 0;
 
     for (size_t i = 0; i < n_coeffs; ++i) {
         int a = 0, b = 0;
+
+        // Read η bits from the buffer and sum them into 'a'
         for (uint8_t j = 0; j < eta; ++j) {
             size_t byte_index = bit_pos / 8;
             uint8_t bit_index = bit_pos % 8;
+
+            // Extract the (bit_pos)-th bit from the buffer
             uint8_t bit = (buf[byte_index] >> bit_index) & 1;
             a += bit;
             bit_pos++;
         }
 
+        // Read another η bits and sum them into 'b'
         for (uint8_t j = 0; j < eta; ++j) {
             size_t byte_index = bit_pos / 8;
             uint8_t bit_index = bit_pos % 8;
+
+            // Extract the (bit_pos)-th bit from the buffer
             uint8_t bit = (buf[byte_index] >> bit_index) & 1;
             b += bit;
             bit_pos++;
         }
 
+        // Store the centered result in the output vector
         result[i] = a - b;
     }
 
@@ -82,7 +132,27 @@ std::vector<uint32_t> cbd(const uint8_t* buf, size_t n_coeffs, uint8_t eta) {
 }
 
 
-
+/*!
+ * \brief Generate secret and error vectors for the CRYSTAL-Kyber key generation algorithm
+ * \param sigma Secret input seed for the generation that we use to generate the secret and error vectors
+ * \param eta Upper bound for the values we are sampling
+ * \param k dimension of the secret and error vectors
+ * \param N Number of coefficients in the polynomial
+ * \param Q Modulus for the sampling
+ *
+ * \return A pair of vectors containing the generated secret and error polynomials
+ *
+ * This function generates secret and error vectors using the CBD sampling method.
+ * It uses the SHAKE128 function to generate random bytes and then samples coefficients
+ * from the generated bytes. The resulting vectors are returned as a pair.
+ * The first vector contains the secret polynomials, and the second vector contains
+ * the error polynomials.
+ * 
+ * The secret and error vectors are generated in almost an identical way, with the only
+ * difference being the nonce used in the SHAKE128 function. The nonce for the secret
+ * vectors is in the range 0..k-1, while the nonce for the error vectors is in the range
+ * k..2k-1.
+*/
 std::pair<std::vector<ModularPoly>, std::vector<ModularPoly>>
 generate_secret_and_error_vectors(
     const std::array<uint8_t, 32>& sigma,
@@ -123,8 +193,144 @@ generate_secret_and_error_vectors(
 }
 
 
+/**
+ * @brief Derive the coins seed for Kyber encapsulation from a message and serialized public key.
+ *
+ * This function implements:
+ *    coins = SHAKE256(m || SHAKE256(pk))
+ *
+ * @param message       32-byte uniformly random message
+ * @param pk_serialized Serialized public key (t || rho)
+ * @return std::array<uint8_t, 32> A 32-byte coins seed
+ */
+std::array<uint8_t, 32> derive_coins_from_message_and_pk(
+    const std::array<uint8_t, 32>& message,
+    const std::vector<uint8_t>& pk_serialized
+) {
+    std::array<uint8_t, 32> coins;
+
+    // Step 1: hash the public key with SHAKE256 to get H(pk)
+    std::array<uint8_t, 32> pk_hash;
+    {
+        EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+        EVP_DigestInit_ex(ctx, EVP_shake256(), nullptr);
+        EVP_DigestUpdate(ctx, pk_serialized.data(), pk_serialized.size());
+        EVP_DigestFinalXOF(ctx, pk_hash.data(), pk_hash.size());
+        EVP_MD_CTX_free(ctx);
+    }
+
+    // Step 2: concatenate message || H(pk), then hash with SHAKE256 to get coins
+    {
+        EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+        EVP_DigestInit_ex(ctx, EVP_shake256(), nullptr);
+        EVP_DigestUpdate(ctx, message.data(), message.size());
+        EVP_DigestUpdate(ctx, pk_hash.data(), pk_hash.size());  // m || H(pk)
+        EVP_DigestFinalXOF(ctx, coins.data(), coins.size());
+        EVP_MD_CTX_free(ctx);
+    }
+
+    return coins;
+}
 
 
+/*!
+ * \brief Generate ephemeral secret and error vectors for CRYSTALS-Kyber encapsulation.
+ *
+ * This function is used in the encapsulation stage to generate:
+ * - The ephemeral secret vector r
+ * - The error vector e₁ for computing u = Aᵗ r + e₁
+ * - The error vector e₂ for computing v = tᵗ r + e₂ + ⌊q/2⌉
+ *
+ * All vectors are sampled using the CBD algorithm with SHAKE128.
+ * The nonce ranges are disjoint and determined as follows:
+ * - Nonces 0..k−1 → r
+ * - Nonces k..2k−1 → e₁
+ * - Nonce 2k       → e₂ (single polynomial)
+ *
+ * \param coins  A 32-byte seed derived from the shared input (e.g. hash of message + pk)
+ * \param eta1   CBD parameter for r and e₁
+ * \param eta2   CBD parameter for e₂
+ * \param k      Kyber matrix dimension
+ * \param N      Number of coefficients per polynomial
+ * \param Q      Modulus for polynomial coefficients
+ * \return A tuple containing r (vector), e₁ (vector), and e₂ (scalar polynomial)
+ */
+std::tuple<std::vector<ModularPoly>, std::vector<ModularPoly>, ModularPoly>
+generate_ephemeral_vectors(
+    const std::array<uint8_t, 32>& coins,
+    uint8_t eta1,
+    uint8_t eta2,
+    size_t k,
+    size_t N,
+    uint32_t Q
+) {
+    // For eta1-distributed: r and e1
+    const size_t bits_eta1 = 2 * eta1;
+    const size_t bytes_eta1 = (bits_eta1 * N + 7) / 8;
+
+    // For eta2-distributed: e2
+    const size_t bits_eta2 = 2 * eta2;
+    const size_t bytes_eta2 = (bits_eta2 * N + 7) / 8;
+
+    std::vector<ModularPoly> r_vector;
+    std::vector<ModularPoly> e1_vector;
+
+    // --- Generate r: nonces 0..k−1 ---
+    for (size_t i = 0; i < k; ++i) {
+        std::array<uint8_t, 33> input;
+        std::copy(coins.begin(), coins.end(), input.begin());
+        input[32] = static_cast<uint8_t>(i);  // Nonce = i
+
+        std::vector<uint8_t> buf(bytes_eta1);
+        shake128_stream(buf.data(), bytes_eta1, input.data(), input.size());
+
+        std::vector<uint32_t> coeffs = cbd(buf.data(), N, eta1);
+        r_vector.emplace_back(ModularPoly(coeffs, Q));
+    }
+
+    // --- Generate e₁: nonces k..2k−1 ---
+    for (size_t i = 0; i < k; ++i) {
+        std::array<uint8_t, 33> input;
+        std::copy(coins.begin(), coins.end(), input.begin());
+        input[32] = static_cast<uint8_t>(i + k);  // Nonce = i + k
+
+        std::vector<uint8_t> buf(bytes_eta1);
+        shake128_stream(buf.data(), bytes_eta1, input.data(), input.size());
+
+        std::vector<uint32_t> coeffs = cbd(buf.data(), N, eta1);
+        e1_vector.emplace_back(ModularPoly(coeffs, Q));
+    }
+
+    // --- Generate e₂: nonce = 2k ---
+    std::array<uint8_t, 33> input;
+    std::copy(coins.begin(), coins.end(), input.begin());
+    input[32] = static_cast<uint8_t>(2 * k);  // Single nonce for e₂
+
+    std::vector<uint8_t> buf_e2(bytes_eta2);
+    shake128_stream(buf_e2.data(), bytes_eta2, input.data(), input.size());
+
+    std::vector<uint32_t> coeffs_e2 = cbd(buf_e2.data(), N, eta2);
+    ModularPoly e2(coeffs_e2, Q);
+
+    return {r_vector, e1_vector, e2};
+}
+
+
+
+/*!
+* \brief Generate a modular polynomial entry from a deterministic seed rho (and nonces) and use SHAKE128 to create a stream of bytes to construct the coefficients
+* \param poly Reference to the ModularPoly object to be filled
+* \param rho 32-byte seed for the generation
+* \param nonce1 First nonce for the generation (used to differentiate between different polynomials). Default is 0.
+* \param nonce2 Second nonce for the generation (used to differentiate between different polynomials). Default is 0.
+*
+* Method which generates a single modular polynomial object using SHAKE128 using the rho seed and two nonces. The method should
+* in practice be using rejection sampling to ensure that the coefficients are below Q; however, this has been hardcoded by using
+* the modulus operator. 
+*
+* \note Some of the error handling is unnecessary, as the function should always succeed. The rejection sampling is not implemented in this version.
+*
+*/
 void generate_modular_poly_entry(
     ModularPoly& poly,
     const std::array<uint8_t, 32>& rho,
@@ -166,7 +372,15 @@ void generate_modular_poly_entry(
     poly.set_coeffs(coeffs);
 }
 
-
+/*!
+ * \brief Generate a modular matrix from a deterministic seed rho (and nonces) and use SHAKE128 to create a stream of bytes to construct the coefficients
+ * \param matr Reference to the ModularMatrix object to be filled
+ * \param rho 32-byte seed for the generation
+ *
+ * Helper method which utilizes the generate_modular_poly_entry method to fill the matrix with modular polynomial entries.
+ *
+ *
+*/
 void generate_modular_matrix(ModularMatrix& matr, const std::array<uint8_t, 32>& rho) {
 
     for (size_t i = 0; i < matr.rows; ++i) {

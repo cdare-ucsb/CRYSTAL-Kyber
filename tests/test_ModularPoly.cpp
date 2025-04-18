@@ -21,26 +21,25 @@ TEST(ModularPoly, ModularPolyCopy) {
     }
 }
 
-// TEST(ModularPolyPacking, RoundTrip) {
+TEST(ModularPolyPacking, RoundTrip) {
 
-//     /// ML-KEM-768 Parameters
-//     constexpr uint32_t Q = 3329;
-//     constexpr size_t N = 256;
-//     auto p = ModularInt(Q, N);
+    /// ML-KEM-768 Parameters
+    constexpr uint32_t Q = 3329;
+    constexpr size_t N = 256;
+    auto p = ModularPoly(N,Q);
 
-//     for (size_t i = 0; i < N; ++i)
-//         p[i] = i % Q;
+    for (size_t i = 0; i < N; ++i)
+        p[i] = ModularInt(i, Q);
 
-//     std::array<uint8_t, KEMPoly::PACKED_BYTES> buf;
-//     p.pack(buf);
+    std::vector<uint8_t> buffer = p.pack();
 
-//     KEMPoly unpacked;
-//     unpacked.unpack(buf);
+    ModularPoly unpacked(N, Q);
+    unpacked.unpack(buffer);
 
-//     for (size_t i = 0; i < N; ++i) {
-//         ASSERT_EQ(p[i], unpacked[i]);
-//     }
-// }
+    for (size_t i = 0; i < N; ++i) {
+        ASSERT_EQ(p[i], unpacked[i]);
+    }
+}
 
 
 

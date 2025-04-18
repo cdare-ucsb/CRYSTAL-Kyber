@@ -62,5 +62,31 @@ struct ModularMatrix {
         return output;
     }
 
+    std::vector<ModularPoly> apply_transpose_transform(std::vector<ModularPoly>& input) {
+
+        if (input.size() != this->rows) {
+            throw std::invalid_argument("Input size does not match matrix dimensions.");
+        }
+
+        std::vector<ModularPoly> output;
+        output.reserve(cols);
+
+        for (size_t j = 0; j < cols; ++j) {
+            ModularPoly acc(input[0].size(), input[0].Q);  // Q and N inferred from input
+            for (size_t i = 0; i < rows; ++i) {
+                acc = acc + (*this)(i, j) * input[i];
+            }
+            output.emplace_back(std::move(acc));
+        }
+
+        if (input[0].NTTed) {
+            for (auto& entry : output) {
+                entry.NTTed = true;
+            }
+        }
+
+        return output;
+    }
+
 };
 

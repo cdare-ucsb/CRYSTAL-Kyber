@@ -1,3 +1,19 @@
+/*!
+ * \file ModularInt.hpp
+ * \brief Header file for ModularInt class
+ * \author Chros Dare
+ * \date 2025-04-17
+ * 
+ * This file contains the definition of the ModularInt class, which represents
+ * elements of the finite field extension GF(Q^N) and provides various arithmetic
+ * operations, including addition, subtraction, multiplication, and division. While most
+ * methods can be computed natively, the class also provides methods for NTT (Number Theoretic Transform)
+ * and INTT (Inverse Number Theoretic Transform) to speed up polynomial multiplication.
+ * Several other utility functions are also provided for Kyber-related operations, such as
+ * the infinity/sup-norm and rounding operations.
+*/
+
+
 #pragma once
 
 #include <array>
@@ -18,7 +34,14 @@
 
 
 
-
+/*!
+* \brief Class representing an element of the finite field extension GF(Q^N).
+* 
+* This class provides methods for polynomial arithmetic, including addition,
+* subtraction, and multiplication. It also supports NTT (Number Theoretic Transform)
+* and INTT (Inverse Number Theoretic Transform) for efficient polynomial multiplication. 
+* The class is designed to work with a modulus Q and a polynomial degree N.
+*/
 class ModularPoly {
 public:
 
@@ -69,12 +92,24 @@ public:
         }
     }
 
-    // Non-const accessor
+    /*!
+     * \brief Accessor for coefficients
+     * \param idx Index of the coefficient to access
+     * \return Reference to the coefficient at index idx
+     * 
+     * Standard accessor for coefficients, allowing the [] operator to be used on ModularPoly objects.
+     */
     ModularInt& operator[](size_t idx) {
         return coeffs[idx];
     }
 
-    // Const accessor
+    /*!
+     * \brief Constant accessor for coefficients
+     * \param idx Index of the coefficient to access
+     * \return Reference to the coefficient at index idx
+     * 
+     * Overloaded constant accessor for coefficients, allowing the [] operator to be used on ModularPoly objects.
+     */
     const ModularInt& operator[](size_t idx) const {
         return coeffs[idx];
     }
@@ -92,12 +127,25 @@ public:
         return result;
     }
 
+    /*!
+     * \brief Get the size of the polynomial
+     * \return Size of the polynomial
+     * 
+     * Returns the number of coefficients in the polynomial, which is simply one of the member variables N.
+     */
     size_t size() const {
         return N;
     }
 
 
-
+    /*!
+    * \brief Define the sum of polynomials as the sum of their coefficients modulo Q
+    * \return A ModularPoly object representing the sum of the two polynomials
+    * 
+    * In the finite field extension, the sum is taken component-wise. Thus linear terms are 
+    * added together in ZZ_Q, quadratic terms are added together in ZZ_Q, etc. The result is a new polynomial
+    * with the same size and modulus as the original polynomials.
+    */
     ModularPoly operator+(const ModularPoly& other) const {
         if (Q != other.Q || N != other.N) {
             throw std::invalid_argument("Polynomials must have the same modulus and size.");
@@ -128,6 +176,8 @@ public:
         }
         return result;
     }
+
+
     ModularPoly operator*(ModularPoly& other) {
         if (Q != other.Q || N != other.N) {
             throw std::invalid_argument("Polynomials must have the same modulus and size.");
@@ -166,6 +216,15 @@ public:
         }
 
         return max_val;
+    }
+
+
+    ModularPoly round() {
+        std::vector<uint32_t> rounded_coeffs(N);
+        for (size_t i = 0; i < N; ++i) {
+            rounded_coeffs[i] = coeffs[i].round();
+        }
+        return ModularPoly(rounded_coeffs, Q, ctx);
     }
 
 
@@ -261,7 +320,12 @@ public:
     }
 
 
-
+    /*!
+     * \brief Pack the polynomial coefficients into a byte array
+     * \return A vector of uint8_t representing the packed coefficients
+     * 
+     * This method packs the polynomial coefficients into a byte array, which can be used for serialization or transmission.
+     */
     std::vector<uint8_t> pack() const {
         size_t bitlen = std::bit_width(Q);
         size_t out_size = (bitlen * N + 7) / 8;;
@@ -287,6 +351,13 @@ public:
         return out;
     }
 
+    /*!
+     * \brief Unpack the polynomial coefficients from a byte array
+     * \param in A vector of uint8_t representing the packed coefficients
+     * 
+     * This method unpacks the polynomial coefficients from a byte array, which can be used for deserialization or reception. 
+     * This method overwrites the current coefficients of the polynomial.
+     */
     void unpack(const std::vector<uint8_t>& in) {
         size_t bitlen = std::bit_width(Q);
         size_t bitpos = 0;
